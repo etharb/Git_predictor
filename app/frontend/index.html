@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ETH RT Predictor – Panel</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header>
+    <h1>ETH Real-Time Predictor (1s)</h1>
+    <div id="status" class="status" role="status" aria-live="polite"></div>
+  </header>
+
+  <section class="controls">
+    <div class="control-row">
+      <label for="symbol">Symbol:</label>
+      <input id="symbol" value="ETHUSDT" inputmode="verbatim" spellcheck="false" />
+      <button id="applySymbol">Použít</button>
+      <button id="start">Start</button>
+      <button id="stop">Stop</button>
+      <button id="reload">Načíst modely</button>
+    </div>
+
+    <div class="control-row">
+      <label for="modelSet">Model set:</label>
+      <select id="modelSet" style="min-width:320px;"></select>
+      <button id="applyModelSet">Použít</button>
+    </div>
+
+    <div class="control-row">
+      <label for="confUp">CONF_ENTER_UP:</label>
+      <input id="confUp" type="number" step="0.001" min="0" max="1" />
+      <label for="confDown">CONF_ENTER_DOWN:</label>
+      <input id="confDown" type="number" step="0.001" min="0" max="1" />
+      <label for="abstain">ABSTAIN_MARGIN:</label>
+      <input id="abstain" type="number" step="0.001" min="0" max="0.5" />
+      <button id="applyThr">Uložit prahy</button>
+      <button id="loadThr" class="ghost">Načíst prahy ze sady</button>
+      <button id="dlCsv" class="ghost">Stáhnout CSV signály</button>
+    </div>
+  </section>
+
+  <!-- LADĚNÍ META-GATE -->
+  <section class="card" id="tunePanel" style="display:none; margin-top:12px;">
+    <h3 style="margin-top:0;">Ladění meta-gate</h3>
+
+    <!-- Stav L2/L3 -->
+    <div class="muted" style="margin:-2px 0 8px 0; font-size:13px;">
+      L2 Gate: <b id="l2Ready">—</b> • sady: <span id="l2Sets" class="mono">—</span> • len: <span id="l2Lens" class="mono">—</span><br>
+      L3 Supervisor: <b id="l3Ready">—</b> • sady: <span id="l3Sets" class="mono">—</span> • len: <span id="l3Lens" class="mono">—</span>
+    </div>
+
+    <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:center;">
+      <label><input type="radio" name="gateMode" id="gateModeAuto"> Auto</label>
+      <label><input type="radio" name="gateMode" id="gateModeManual"> Manuál</label>
+      <label><input type="radio" name="gateMode" id="gateModeBlend" checked> Blend</label>
+
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span>α</span>
+        <input id="alphaSlider" type="range" min="0" max="1" step="0.01" value="0.30" />
+        <span id="alphaVal">0.30</span>
+      </div>
+
+      <button id="applyTune">Použít</button>
+      <button id="resetTune">Reset</button>
+    </div>
+
+    <div id="compList" class="comp-list" style="margin-top:10px;"></div>
+    <!-- PŘEJMENOVÁNO kvůli duplicitě ID -->
+    <div id="gateLegend" style="margin-top:8px; font-size:12px; opacity:0.9;"></div>
+    <small style="opacity:0.7;">Tip: v manuálním režimu se komponenty míchají pomocí softmax(gain); v „blend“ se míchá (1−α)·auto + α·manuál.</small>
+  </section>
+
+  <section class="metrics">
+    <!-- Základní KPI -->
+    <div class="card kpis">
+      <div class="kpi">
+        <div class="label">Čas</div>
+        <div class="value" id="ts">—</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Cena</div>
+        <div class="value" id="price">—</div>
+      </div>
+      <div class="kpi">
+        <div class="label">p_up (ensemble)</div>
+        <div class="value" id="pup">—</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Rozhodnutí</div>
+        <div class="value"><span id="decision" class="pill">—</span></div>
+      </div>
+    </div>
+
+    <!-- Per-model KPI (+ L2/L3) -->
+    <div class="card kpis" style="grid-template-columns: repeat(7, minmax(120px,1fr));">
+      <div class="kpi">
+        <div class="label">XGB</div>
+        <div class="value" id="pxgb">—</div>
+      </div>
+      <div class="kpi">
+        <div class="label">LSTM</div>
+        <div class="value" id="plstm">—</div>
+      </div>
+      <div class="kpi">
+        <div class="label">HRM</div>
+        <div class="value" id="phrm">—</div>
+      </div>
+      <div class="kpi">
+        <div class="label">META</div>
+        <div class="value" id="pmeta">—</div>
+      </div>
+      <div class="kpi">
+        <div class="label">L2 gate</div>
+        <div class="value" id="pl2">—</div>
+      </div>
+      <div class="kpi">
+        <div class="label">L3 sup</div>
+        <div class="value" id="pl3">—</div>
+      </div>
+      <div class="kpi">
+        <div class="label">ENSEMBLE</div>
+        <div class="value" id="pens">—</div>
+      </div>
+    </div>
+
+    <!-- L3 heads (multi-head výstupy) -->
+    <div class="card" id="l3heads">
+      <h3>L3 heads</h3>
+      <div class="kpis" style="grid-template-columns: repeat(6, minmax(140px,1fr));">
+        <div class="kpi">
+          <div class="label">p_abstain</div>
+          <div class="value" id="pabstain">—</div>
+        </div>
+        <div class="kpi">
+          <div class="label">p_uncert</div>
+          <div class="value" id="puncert">—</div>
+        </div>
+        <div class="kpi">
+          <div class="label">softmax3 DOWN</div>
+          <div class="value" id="p3down">—</div>
+        </div>
+        <div class="kpi">
+          <div class="label">softmax3 ABSTAIN</div>
+          <div class="value" id="p3abstain">—</div>
+        </div>
+        <div class="kpi">
+          <div class="label">softmax3 UP</div>
+          <div class="value" id="p3up">—</div>
+        </div>
+        <div class="kpi">
+          <div class="label">hsel (argmax)</div>
+          <div class="value" id="hselTop">—</div>
+        </div>
+      </div>
+      <div style="margin-top:8px; font-size:12px; color:#cfd7e6;">
+        <span class="mono">hsel vec:</span> <span id="hselVec" class="mono">—</span>
+      </div>
+    </div>
+
+    <!-- Síla signálu -->
+    <div class="strength card">
+      <div class="strength-row">
+        <div class="strength-title">Síla signálu</div>
+        <div class="strength-pct" id="strengthPct">—</div>
+      </div>
+      <div class="meter" id="meter">
+        <div class="meter-track"></div>
+        <div class="meter-fill meter-fill-long" id="meterLong"></div>
+        <div class="meter-fill meter-fill-short" id="meterShort"></div>
+        <div class="meter-marker" id="markerDown" title="CONF_ENTER_DOWN"></div>
+        <div class="meter-marker" id="markerUp" title="CONF_ENTER_UP"></div>
+        <div class="meter-pointer" id="markerNow" title="p_up"></div>
+        <div class="meter-labels">
+          <span class="red">SHORT</span>
+          <span class="muted">NEUTRAL</span>
+          <span class="green">LONG</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Rolling mini-tabulka výsledků -->
+    <div class="card">
+      <h3>Rolling metriky (po doběhu horizontu)</h3>
+      <div class="control-row" style="margin-bottom:8px;">
+        <label for="rollN">Okno (N):</label>
+        <input id="rollN" type="number" min="10" max="1000" step="10" value="200" style="width:100px;">
+      </div>
+      <div class="kpis" style="grid-template-columns: repeat(6, minmax(140px,1fr));">
+        <div class="kpi">
+          <div class="label">Počet</div>
+          <div class="value" id="m_cnt">—</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Hit-rate</div>
+          <div class="value" id="m_hit">—</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Hit LONG</div>
+          <div class="value" id="m_hit_long">—</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Hit SHORT</div>
+          <div class="value" id="m_hit_short">—</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Avg Δ (out − pred)</div>
+          <div class="value" id="m_avgd">—</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Posledních 10</div>
+          <div class="value" id="m_last10">—</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="charts">
+    <div class="chart-block">
+      <h3>Cena (posledních N)</h3>
+      <canvas id="priceChart" width="1200" height="280" aria-label="Graf ceny" role="img"></canvas>
+    </div>
+    <div class="chart-block">
+      <h3>Pravděpodobnost ↑ (p_up) + prahy</h3>
+      <canvas id="probChart" width="1200" height="220" aria-label="Graf pravděpodobnosti" role="img"></canvas>
+      <!-- TADY ZŮSTÁVÁ compLegend pro legendu k PROB grafu -->
+      <div id="compLegend" style="margin-top:6px; font-size:12px;"></div>
+    </div>
+  </section>
+
+  <footer>
+    <small>Panel se aktualizuje každou sekundu. Prahy a symbol mění chování v reálném čase.</small>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

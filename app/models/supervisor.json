@@ -1,0 +1,29 @@
+{
+  "seq_len": 60,
+  "use_raw_in_l3": true,
+  "use_l1_in_l3": true,
+  "use_l2_in_l3": true,
+
+  "sets_l1": [
+    "app/models/weights/1s",
+    "app/models/weights/5s",
+    "app/models/weights/10s",
+    "app/models/weights/15s",
+    "app/models/weights/30s",
+    "app/models/weights/60s",
+    "app/models/weights/180s",
+  ],
+  "sets_l2": [
+    "app/models/weights/1s",
+    "app/models/weights/15s",
+    "app/models/weights/30s",
+    "app/models/weights/60s",
+    "app/models/weights/180s",
+  ],
+
+  "recommended_thresholds": {
+    "CONF_ENTER_UP": 0.58,
+    "CONF_ENTER_DOWN": 0.42,
+    "ABSTAIN_MARGIN": 0.02
+  }
+}

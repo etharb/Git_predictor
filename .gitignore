@@ -1,0 +1,43 @@
+# --- Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# --- Virtualenvs
+.venv/
+venv/
+.env/
+.env.*        # všechny runtime env soubory
+*.secret
+*.key
+
+# --- Data / váhy / velké soubory (ne do gitu)
+app/data/
+data/
+datasets/
+logs/
+
+# model weights + kalibrace
+app/models/weights/
+!app/models/weights/.gitkeep
+
+# dočasné soubory editorů/OS
+.DS_Store
+.vscode/
+.idea/
+
+# výsledné CSV/logy z běhu
+*.csv
+*.log
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Node (pokud bys něco přidal na FE)
+node_modules/
+
+# Cache nástrojů
+.mypy_cache/
+pytest_cache/

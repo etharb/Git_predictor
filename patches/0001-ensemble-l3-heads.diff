@@ -1,0 +1,78 @@
+*** a/app/models/ensemble.py
+--- b/app/models/ensemble.py
+@@
+     def predict_detail(self, df_feat_recent):
+-        if df_feat_recent is None or len(df_feat_recent) == 0:
+-            return {
+-                "p_xgb": None, "p_lstm": None, "p_hrm": None, "p_meta": None,
+-                "p_l2": None, "p_l3": None, "p_ens": 0.5
+-            }
++        if df_feat_recent is None or len(df_feat_recent) == 0:
++            # konzistentní výstup včetně L3 heads (None, pokud nejsou k dispozici)
++            return {
++                "p_xgb": None, "p_lstm": None, "p_hrm": None, "p_meta": None,
++                "p_l2": None, "p_l3": None, "p_ens": 0.5,
++                "p_abstain": None, "p_uncert": None, "p3": None, "hsel": None
++            }
+@@
+-        # L3 (přednostně)
+-        p_supervisor = None
++        # L3 (přednostně) + snaha vytáhnout multi-heady (pokud jsou v checkpointu)
++        p_supervisor = None
++        p_l3_abstain = None
++        p_l3_uncert  = None
++        p_l3_softmax3 = None  # [p_down, p_abstain, p_up] pokud dostupné
++        p_l3_hsel    = None   # volitelná distribuce výběru hlavy
+         ok_L3, inputs_l3 = self._build_L3_inputs(df_feat_recent)
+         if ok_L3 and self.l3_supervisor is not None:
+-            with torch.no_grad():
+-                p = float(self.l3_supervisor.infer(torch.from_numpy(inputs_l3)).cpu().numpy().reshape(-1)[0])
+-            if self.l3_cal is not None:
+-                p = _apply_platt_or_isotonic(self.l3_cal, p)
+-            p_supervisor = p
++            with torch.no_grad():
++                tens = torch.from_numpy(inputs_l3)
++                # 1) Preferuj bohatší API, pokud existuje
++                if hasattr(self.l3_supervisor, "infer_detail"):
++                    try:
++                        d = self.l3_supervisor.infer_detail(tens)
++                        # očekávané klíče (volitelné)
++                        base_p = d.get("p_updown")
++                        p_supervisor = float(base_p) if base_p is not None else None
++                        p_l3_abstain = d.get("p_abstain")
++                        p_l3_uncert  = d.get("p_uncert")
++                        p_l3_softmax3 = d.get("p3")  # list/np.array délky 3
++                        p_l3_hsel     = d.get("hsel")
++                    except Exception:
++                        # fallback na základní infer
++                        try:
++                            p = self.l3_supervisor.infer(tens).cpu().numpy().reshape(-1)[0]
++                            p_supervisor = float(p)
++                        except Exception:
++                            p_supervisor = None
++                else:
++                    # 2) legacy – jen skalarový up-prob
++                    try:
++                        p = self.l3_supervisor.infer(tens).cpu().numpy().reshape(-1)[0]
++                        p_supervisor = float(p)
++                    except Exception:
++                        p_supervisor = None
++
++            if (p_supervisor is not None) and (self.l3_cal is not None):
++                p_supervisor = _apply_platt_or_isotonic(self.l3_cal, p_supervisor)
+@@
+-        return {
+-            "p_xgb": px, "p_lstm": pl, "p_hrm": ph, "p_meta": pm,
+-            "p_l2": p_gate_l2, "p_l3": p_supervisor,
+-            "p_ens": p_ens
+-        }
++        return {
++            "p_xgb": px, "p_lstm": pl, "p_hrm": ph, "p_meta": pm,
++            "p_l2": p_gate_l2, "p_l3": p_supervisor,
++            "p_ens": p_ens,
++            # L3 multi-head výstupy (null-safe; dostupné jen pokud je supervisor umí)
++            "p_abstain": p_l3_abstain,
++            "p_uncert":  p_l3_uncert,
++            "p3":        (list(p_l3_softmax3) if p_l3_softmax3 is not None else None),
++            "hsel":      (list(p_l3_hsel)     if p_l3_hsel     is not None else None),
++        }
